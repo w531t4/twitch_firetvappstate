@@ -1,0 +1,6 @@
+[MAIN]
+disable=missing-module-docstring
+source-roots=.
+
+[BASIC]
+const-naming-style=snake_case
