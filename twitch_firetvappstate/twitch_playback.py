@@ -16,9 +16,11 @@ from twitch_firetvappstate.handshake import Handshake
 
 
 class TwitchPlayback(hass.Hass):
+    """ produce entities describing the state of thw twitch app """
     def initialize(self):
-        self.host = self.args["host"]                 # e.g. 192.168.1.50
-        self.port = int(self.args.get("port", 5555))
+        """ get values from apps.yaml """
+        self.host = self.args["host"]
+        self.port = self.args.get("port", 5555)
         self.adbkey = Path(self.args["adbkey"]).expanduser()
         self.adbkey_pub = (
             Path(self.args["adbkey_pub"]).expanduser()
@@ -29,13 +31,132 @@ class TwitchPlayback(hass.Hass):
         self.poll_secs = int(self.args.get("poll_interval", 5))
         self.session_header = self.args.get("session_header", "TwitchMediaSession")
 
-        self._adb = None
-        self._connected = False
-        self._last_playbackstate = None
-        self._last_appinfocus = None
-        self._last_playbackactivechannel = None
+        self.adb = None
+        self.connected = False
+        self.last_playbackstate = None
+        self.last_appinfocus = None
+        self.last_playbackactivechannel = None
 
         self.run_in(self._loop, 1)
+
+    @property
+    def entity_prefix(self) -> str:
+        """ prefix to prepend to generated entity values """
+        return self._entity_prefix
+
+    @entity_prefix.setter
+    def entity_prefix(self, data) -> None:
+        self._entity_prefix = data
+
+    @property
+    def session_header(self) -> str:
+        """ header to key-in on for twitch is-active status"""
+        return self._session_header
+
+    @session_header.setter
+    def session_header(self, data) -> None:
+        self._session_header = data
+
+    @property
+    def adb(self) -> Optional[AdbDeviceTcp]:
+        """ adb device holder"""
+        return self._adb
+
+    @adb.setter
+    def adb(self, data) -> None:
+        self._adb = data
+
+    @property
+    def host(self) -> str:
+        """adb host to connect to"""
+        return self._host
+
+    @host.setter
+    def host(self, data) -> None:
+        self._host = data
+
+    @property
+    def port(self) -> int:
+        """adp port to connect to"""
+        return self._port
+
+    @port.setter
+    def port(self, data) -> None:
+        if isinstance(data, str):
+            self._port = int(data)
+        elif isinstance(data, int):
+            self._port = data
+        else:
+            raise TypeError(f"Expecting str or int, observed={type(data)}")
+
+    @property
+    def connected(self) -> bool:
+        """is adb connected?"""
+        return self._connected
+
+    @connected.setter
+    def connected(self, data) -> None:
+        self._connected = data
+
+    @property
+    def last_playbackstate(self) -> Optional[str]:
+        """ previous playbackstate"""
+        return self._last_playbackstate
+
+    @last_playbackstate.setter
+    def last_playbackstate(self, data) -> None:
+        self._last_playbackstate = data
+
+    @property
+    def last_appinfocus(self) -> Optional[bool]:
+        """ previous appinfocus"""
+        return self._last_appinfocus
+
+    @last_appinfocus.setter
+    def last_appinfocus(self, data) -> None:
+        self._last_appinfocus = data
+
+    @property
+    def last_playbackactivechannel(self) -> Optional[str]:
+        """ previous playbackactivechannel"""
+        return self._last_playbackactivechannel
+
+    @last_playbackactivechannel.setter
+    def last_playbackactivechannel(self, data) -> None:
+        self._last_playbackactivechannel = data
+
+    @property
+    def poll_secs(self) -> int:
+        """period for polling adb"""
+        return self._poll_secs
+
+    @poll_secs.setter
+    def poll_secs(self, data) -> None:
+        if isinstance(data, str):
+            self._poll_secs = int(data)
+        elif isinstance(data, int):
+            self._poll_secs = data
+        else:
+            raise TypeError(f"Expecting str or int, observed={type(data)}")
+
+    @property
+    def adbkey(self) -> Path:
+        """ adb private key """
+        return self._adbkey
+
+    @adbkey.setter
+    def adbkey(self, data: Path) -> None:
+        self._adbkey = data
+
+    @property
+    def adbkey_pub(self) -> Path:
+        """ adb pub key """
+        return self._adbkey_pub
+
+    @adbkey_pub.setter
+    def adbkey_pub(self, data: Path) -> None:
+        self._adbkey_pub = data
+
 
     # ----------- ADB plumbing (adb-shell) -----------
 
@@ -49,31 +170,37 @@ class TwitchPlayback(hass.Hass):
     def _connect(self):
         try:
             signer = self._load_signer()
-            self._adb = AdbDeviceTcp(self.host, self.port, default_transport_timeout_s=10.0)
-            ok = self._adb.connect(rsa_keys=[signer], auth_timeout_s=10.0)
-            self._connected = bool(ok)
-            if self._connected:
+            self.adb = AdbDeviceTcp(self.host, self.port, default_transport_timeout_s=10.0)
+            ok = self.adb.connect(rsa_keys=[signer], auth_timeout_s=10.0)
+            self.connected = bool(ok)
+            if self.connected:
                 self.log(f"ADB connected to {self.host}:{self.port}")
             else:
                 self.error("ADB connect returned falsy result")
         except Exception as e:
-            self._connected = False
-            self._adb = None
+            self.connected = False
+            self.adb = None
             self.error(f"ADB connect error: {e}")
 
     def _adb_shell(self, cmd: str) -> str:
-        if not self._connected or not self._adb:
+        if not self.connected or not self.adb:
             return ""
         try:
-            return self._adb.shell(cmd) or ""
+            data = self.adb.shell(cmd)
+            if data and isinstance(data, bytes):
+                return data.decode("utf-8")
+            elif data and isinstance(data, str):
+                return data
+            else:
+                return ""
         except Exception as e:
             self.error(f"adb shell error for '{cmd}': {e}")
-            self._connected = False
+            self.connected = False
             try:
-                self._adb.close()
+                self.adb.close()
             except Exception:
                 pass
-            self._adb = None
+            self.adb = None
             return ""
 
     # ----------- Parsing + publishing -----------
@@ -100,7 +227,8 @@ class TwitchPlayback(hass.Hass):
 
         # 2) fallback: header → playback within a limited window (regex)
         m2 = re.search(
-            r"TwitchMediaSession\s+tv\.twitch\.android\.viewer/.*?(?:\n.*){0,40}?PlaybackState\s*\{[^}]*\bstate\s*=\s*(\d+)\b",
+            (r"TwitchMediaSession\s+tv\.twitch\.android\.viewer/.*?(?:\n.*){0,40}?"
+             r"PlaybackState\s*\{[^}]*\bstate\s*=\s*(\d+)\b"),
             text,
             re.DOTALL,
         )
@@ -123,11 +251,13 @@ class TwitchPlayback(hass.Hass):
                 "6": "transition/unknown (observed)",
             },
         }
-        self.set_state(sensor_ent, state=state_val if state_val is not None else "unknown", attributes=attrs)
+        self.set_state(sensor_ent,
+                       state=state_val if state_val is not None else "unknown",
+                       attributes=attrs)
 
         # binary_sensor: on when state==3
         bin_ent = f"binary_sensor.{self.entity_prefix}_playing"
-        is_playing = (state_val == 3)
+        is_playing = state_val == 3
         self.set_state(
             bin_ent,
             state="on" if is_playing else "off",
@@ -139,8 +269,8 @@ class TwitchPlayback(hass.Hass):
             },
         )
 
-        if state_val != self._last_playbackstate:
-            self._last_playbackstate = state_val
+        if state_val != self.last_playbackstate:
+            self.last_playbackstate = state_val
             self.fire_event(
                 "twitch_playback_state_changed",
                 host=self.host,
@@ -177,8 +307,8 @@ class TwitchPlayback(hass.Hass):
             },
         )
 
-        if state_val != self._last_appinfocus:
-            self._last_appinfocus = state_val
+        if state_val != self.last_appinfocus:
+            self.last_appinfocus = state_val
             self.fire_event(
                 "twitch_is_focused_changed",
                 host=self.host,
@@ -194,10 +324,12 @@ class TwitchPlayback(hass.Hass):
             "friendly_name": f"{self.entity_prefix} playback channel",
             "updated": updated_iso,
         }
-        self.set_state(sensor_ent, state=state_val if state_val is not None else "unknown", attributes=attrs)
+        self.set_state(sensor_ent,
+                       state=state_val if state_val is not None else "unknown",
+                       attributes=attrs)
 
-        if state_val != self._last_playbackactivechannel:
-            self._last_playbackactivechannel = state_val
+        if state_val != self.last_playbackactivechannel:
+            self.last_playbackactivechannel = state_val
             self.fire_event(
                 "twitch_playback_active_channel_changed",
                 host=self.host,
@@ -220,16 +352,17 @@ class TwitchPlayback(hass.Hass):
         # Some builds return a success line; we still read the file explicitly.
         xml_text = self._adb_shell(f"cat {dump_path}")
         if not xml_text or "<hierarchy" not in xml_text:
-            self.error(f"Failed to read UI dump from {dump_path}; cat returned: {repr(xml_text)[:120]}")
+            self.error(f"Failed to read UI dump from {dump_path}; "
+                       f"cat returned: {repr(xml_text)[:120]}")
             return None
         return xml_text
 
     def _loop(self, _):
         try:
-            if not self._connected or self._adb is None:
+            if not self.connected or self.adb is None:
                 self._connect()
 
-            if self._connected:
+            if self.connected:
                 # Determine if twitch app is in current focus
                 out = self._adb_shell("dumpsys window")
                 state_val = self._parse_twitch_appinfocus(out) if out else None
@@ -255,7 +388,7 @@ class TwitchPlayback(hass.Hass):
 
         except Exception as e:
             self.error(f"Poll error: {e}")
-            self._connected = False
+            self.connected = False
         finally:
             self.run_in(self._loop, self.poll_secs)
 
