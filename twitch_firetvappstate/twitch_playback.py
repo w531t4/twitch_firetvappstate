@@ -1,6 +1,13 @@
+# Copyright (c) 2025 w531t4
+#
+# This file is licensed under the MIT License.
+# See the LICENSE file in the project root for full license text.
+
 from pathlib import Path
 import re
 from datetime import datetime
+from typing import Optional
+import xml.etree.ElementTree as ET
 import appdaemon.plugins.hass.hassapi as hass
 
 from adb_shell.adb_device import AdbDeviceTcp
@@ -25,6 +32,8 @@ class TwitchPlayback(hass.Hass):
         self._adb = None
         self._connected = False
         self._last_playbackstate = None
+        self._last_appinfocus = None
+        self._last_playbackactivechannel = None
 
         self.run_in(self._loop, 1)
 
@@ -36,9 +45,6 @@ class TwitchPlayback(hass.Hass):
         elif not self.adbkey_pub.exists():
             raise FileNotFoundError(f"ADB pub key missing: {self.adbkey_pub}")
         return Handshake.load_signer(priv=self.adbkey, pub=self.adbkey_pub)
-        # priv = self.adbkey.read_bytes()
-        # pub = self.adbkey_pub.read_bytes()
-        # return PythonRSASigner.FromRSAKey(priv, pub)
 
     def _connect(self):
         try:
@@ -102,6 +108,7 @@ class TwitchPlayback(hass.Hass):
             return int(m2.group(1))
 
         return None
+
     def _publish_twitch_playbackstate(self, state_val):
         updated_iso = datetime.utcnow().isoformat() + "Z"
 
@@ -141,7 +148,81 @@ class TwitchPlayback(hass.Hass):
                 playing=is_playing,
             )
 
+    def _parse_twitch_appinfocus(self, text: str):
+        """
+        Return Twitch PlaybackState 'state' (int) or None.
+        Strategy: find the Twitch header line, then scan the next ~40 lines
+        for the first 'PlaybackState {state=...}'.
+        """
+        if not text:
+            return None
+
+        # 1) fast path: exact header anchor (cheap and reliable)
+        anchor = "tv.twitch.android.viewer"
+        return any([anchor in x and "mCurrentFocus=" in x for x in text.split("\n")])
+
+    def _publish_twitch_appinfocus(self, state_val):
+        updated_iso = datetime.utcnow().isoformat() + "Z"
+
+        bin_ent = f"binary_sensor.{self.entity_prefix}_is_focused"
+        is_focused = state_val
+        self.set_state(
+            bin_ent,
+            state="on" if is_focused else "off",
+            attributes={
+                "friendly_name": f"{self.entity_prefix} is focused",
+                "device_class": "running",
+                "updated": updated_iso,
+                "source": "dumpsys media_session",
+            },
+        )
+
+        if state_val != self._last_appinfocus:
+            self._last_appinfocus = state_val
+            self.fire_event(
+                "twitch_is_focused_changed",
+                host=self.host,
+                state=state_val,
+            )
+
+    def _publish_twitch_playbackactivechannel(self, state_val):
+        updated_iso = datetime.utcnow().isoformat() + "Z"
+
+        # numeric sensor
+        sensor_ent = f"sensor.{self.entity_prefix}_playback_channel"
+        attrs = {
+            "friendly_name": f"{self.entity_prefix} playback channel",
+            "updated": updated_iso,
+        }
+        self.set_state(sensor_ent, state=state_val if state_val is not None else "unknown", attributes=attrs)
+
+        if state_val != self._last_playbackactivechannel:
+            self._last_playbackactivechannel = state_val
+            self.fire_event(
+                "twitch_playback_active_channel_changed",
+                host=self.host,
+                state=state_val,
+            )
+
     # ----------- Main loop -----------
+    def _uia_dump_xml(self) -> Optional[str]:
+        """
+        Returns the window_dump.xml content as a string, or None on failure.
+        Uses 'uiautomator dump --compressed' then cats the file to avoid local temp files.
+        """
+        # Write the dump
+        dump_path = "/sdcard/window_dump.xml"
+        out = self._adb_shell(f"uiautomator dump --compressed {dump_path} 2>&1")
+        if not out:
+            self.error("uiautomator dump produced no output")
+            return None
+
+        # Some builds return a success line; we still read the file explicitly.
+        xml_text = self._adb_shell(f"cat {dump_path}")
+        if not xml_text or "<hierarchy" not in xml_text:
+            self.error(f"Failed to read UI dump from {dump_path}; cat returned: {repr(xml_text)[:120]}")
+            return None
+        return xml_text
 
     def _loop(self, _):
         try:
@@ -149,12 +230,61 @@ class TwitchPlayback(hass.Hass):
                 self._connect()
 
             if self._connected:
+                # Determine if twitch app is in current focus
+                out = self._adb_shell("dumpsys window")
+                state_val = self._parse_twitch_appinfocus(out) if out else None
+                self._publish_twitch_appinfocus(state_val)
+                out = None
+                state_val = None
+
                 # Determine playback state of twitch app
                 out = self._adb_shell("dumpsys media_session")
                 state_val = self._parse_twitch_playbackstate(out) if out else None
                 self._publish_twitch_playbackstate(state_val)
+                out = None
+                state_val = None
+
+                # Determine what channel is currently being watched
+                is_focused = self.get_state("binary_sensor.firetv_twitch_is_focused")
+                is_playing = self.get_state("binary_sensor.firetv_twitch_playing")
+                xml = None
+                if is_focused and is_playing:
+                    xml = self._uia_dump_xml()
+                state_val = self.get_text_before_profile(xml) if xml else "unknown"
+                self._publish_twitch_playbackactivechannel(state_val)
+
         except Exception as e:
             self.error(f"Poll error: {e}")
             self._connected = False
         finally:
             self.run_in(self._loop, self.poll_secs)
+
+    @staticmethod
+    def find_prev_sibling_of_profile(xml_text: str) -> Optional[ET.Element]:
+        """
+        Return the <node> element that immediately PRECEDES the sibling whose `text`
+        matches 'Go to <Name>'s profile...' (ellipsis optional). If no match, returns None.
+        """
+        try:
+            root = ET.fromstring(xml_text)
+        except ET.ParseError:
+            return None
+
+        # walk every element as a potential parent
+        for parent in root.iter():
+            # consider only actual <node> children, in document order
+            kids = [c for c in list(parent) if c.tag.lower() == "node"]
+            for i, child in enumerate(kids):
+                txt = child.attrib.get("text", "")
+                if re.match(r"^Go to .+?'s profile(?:\.\.\.)?$", txt):
+                    if i > 0:
+                        return kids[i - 1]  # immediate previous sibling
+                    else:
+                        return None
+        return None
+
+    @staticmethod
+    def get_text_before_profile(xml_text: str) -> Optional[str]:
+        """Convenience: return the `text` attribute of that previous sibling, or None."""
+        el = TwitchPlayback.find_prev_sibling_of_profile(xml_text)
+        return el.attrib.get("text") if el is not None else None
