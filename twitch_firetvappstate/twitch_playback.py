@@ -396,7 +396,7 @@ class TwitchPlayback(hass.Hass):
         """
         find stramers name in text blob
         """
-        match = re.search(r"\"Go to (?P<name>.+)'s profile(?:\.\.\.)?", xml_text)
+        match = re.search(r"\"Go to (?P<name>\S+)'s profile(?:\.\.\.)?", xml_text)
         if match:
             return match.group("name")
         return None
