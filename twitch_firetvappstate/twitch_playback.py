@@ -7,7 +7,6 @@ from pathlib import Path
 import re
 from datetime import datetime
 from typing import Optional
-import xml.etree.ElementTree as ET
 import appdaemon.plugins.hass.hassapi as hass
 
 from adb_shell.adb_device import AdbDeviceTcp
@@ -395,21 +394,9 @@ class TwitchPlayback(hass.Hass):
     @staticmethod
     def find_streamer_name(xml_text: str) -> str | None:
         """
-        Return the <node> element that immediately PRECEDES the sibling whose `text`
-        matches 'Go to <Name>'s profile...' (ellipsis optional). If no match, returns None.
+        find stramers name in text blob
         """
-        try:
-            root = ET.fromstring(xml_text)
-        except ET.ParseError:
-            return None
-
-        # walk every element as a potential parent
-        for parent in root.iter():
-            # consider only actual <node> children, in document order
-            kids = [c for c in list(parent) if c.tag.lower() == "node"]
-            for i, child in enumerate(kids):
-                txt = child.attrib.get("text", "")
-                match = re.search(r"^\"Go to (?P<name>.+)'s profile(?:\.\.\.)?$", txt)
-                if match:
-                    return match.group("name")
+        match = re.search(r"\"Go to (?P<name>.+)'s profile(?:\.\.\.)?", xml_text)
+        if match:
+            return match.group("name")
         return None
