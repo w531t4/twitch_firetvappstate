@@ -383,7 +383,7 @@ class TwitchPlayback(hass.Hass):
                 xml = None
                 if is_focused and is_playing:
                     xml = self._uia_dump_xml()
-                state_val = self.get_text_before_profile(xml) if xml else "unknown"
+                state_val = self.find_streamer_name(xml) if xml else "unknown"
                 self._publish_twitch_playbackactivechannel(state_val)
 
         except Exception as e:
@@ -393,7 +393,7 @@ class TwitchPlayback(hass.Hass):
             self.run_in(self._loop, self.poll_secs)
 
     @staticmethod
-    def find_prev_sibling_of_profile(xml_text: str) -> Optional[ET.Element]:
+    def find_streamer_name(xml_text: str) -> str | None:
         """
         Return the <node> element that immediately PRECEDES the sibling whose `text`
         matches 'Go to <Name>'s profile...' (ellipsis optional). If no match, returns None.
@@ -409,15 +409,7 @@ class TwitchPlayback(hass.Hass):
             kids = [c for c in list(parent) if c.tag.lower() == "node"]
             for i, child in enumerate(kids):
                 txt = child.attrib.get("text", "")
-                if re.match(r"^Go to .+?'s profile(?:\.\.\.)?$", txt):
-                    if i > 0:
-                        return kids[i - 1]  # immediate previous sibling
-                    else:
-                        return None
+                match = re.search(r"^\"Go to (?P<name>.+)'s profile(?:\.\.\.)?$", txt)
+                if match:
+                    return match.group("name")
         return None
-
-    @staticmethod
-    def get_text_before_profile(xml_text: str) -> Optional[str]:
-        """Convenience: return the `text` attribute of that previous sibling, or None."""
-        el = TwitchPlayback.find_prev_sibling_of_profile(xml_text)
-        return el.attrib.get("text") if el is not None else None
