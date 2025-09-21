@@ -16,6 +16,18 @@ from twitch_firetvappstate.handshake import Handshake
 
 class TwitchPlayback(hass.Hass):
     """ produce entities describing the state of thw twitch app """
+
+    entity_prefix: str  # prefix to prepend to generated entity values
+    session_header: str  # header to key-in on for twitch is-active status
+    adb: Optional[AdbDeviceTcp]  # adb device holder
+    host: str  # adb host to connect to
+    connected: bool  # is adb connected?
+    last_playbackstate: Optional[str]  # previous playbackstate
+    last_appinfocus: Optional[bool]  # previous appinfocus
+    last_playbackactivechannel: Optional[str]  # previous playbackactivechannel
+    adbkey: Path  # adb private key
+    adbkey_pub: Path  # adb pub key
+
     def initialize(self):
         """ get values from apps.yaml """
         self.host = self.args["host"]
@@ -39,42 +51,6 @@ class TwitchPlayback(hass.Hass):
         self.run_in(self._loop, 1)
 
     @property
-    def entity_prefix(self) -> str:
-        """ prefix to prepend to generated entity values """
-        return self._entity_prefix
-
-    @entity_prefix.setter
-    def entity_prefix(self, data) -> None:
-        self._entity_prefix = data
-
-    @property
-    def session_header(self) -> str:
-        """ header to key-in on for twitch is-active status"""
-        return self._session_header
-
-    @session_header.setter
-    def session_header(self, data) -> None:
-        self._session_header = data
-
-    @property
-    def adb(self) -> Optional[AdbDeviceTcp]:
-        """ adb device holder"""
-        return self._adb
-
-    @adb.setter
-    def adb(self, data) -> None:
-        self._adb = data
-
-    @property
-    def host(self) -> str:
-        """adb host to connect to"""
-        return self._host
-
-    @host.setter
-    def host(self, data) -> None:
-        self._host = data
-
-    @property
     def port(self) -> int:
         """adp port to connect to"""
         return self._port
@@ -89,42 +65,6 @@ class TwitchPlayback(hass.Hass):
             raise TypeError(f"Expecting str or int, observed={type(data)}")
 
     @property
-    def connected(self) -> bool:
-        """is adb connected?"""
-        return self._connected
-
-    @connected.setter
-    def connected(self, data) -> None:
-        self._connected = data
-
-    @property
-    def last_playbackstate(self) -> Optional[str]:
-        """ previous playbackstate"""
-        return self._last_playbackstate
-
-    @last_playbackstate.setter
-    def last_playbackstate(self, data) -> None:
-        self._last_playbackstate = data
-
-    @property
-    def last_appinfocus(self) -> Optional[bool]:
-        """ previous appinfocus"""
-        return self._last_appinfocus
-
-    @last_appinfocus.setter
-    def last_appinfocus(self, data) -> None:
-        self._last_appinfocus = data
-
-    @property
-    def last_playbackactivechannel(self) -> Optional[str]:
-        """ previous playbackactivechannel"""
-        return self._last_playbackactivechannel
-
-    @last_playbackactivechannel.setter
-    def last_playbackactivechannel(self, data) -> None:
-        self._last_playbackactivechannel = data
-
-    @property
     def poll_secs(self) -> int:
         """period for polling adb"""
         return self._poll_secs
@@ -137,25 +77,6 @@ class TwitchPlayback(hass.Hass):
             self._poll_secs = data
         else:
             raise TypeError(f"Expecting str or int, observed={type(data)}")
-
-    @property
-    def adbkey(self) -> Path:
-        """ adb private key """
-        return self._adbkey
-
-    @adbkey.setter
-    def adbkey(self, data: Path) -> None:
-        self._adbkey = data
-
-    @property
-    def adbkey_pub(self) -> Path:
-        """ adb pub key """
-        return self._adbkey_pub
-
-    @adbkey_pub.setter
-    def adbkey_pub(self, data: Path) -> None:
-        self._adbkey_pub = data
-
 
     # ----------- ADB plumbing (adb-shell) -----------
 
