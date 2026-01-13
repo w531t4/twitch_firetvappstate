@@ -1,7 +1,5 @@
-# Copyright (c) 2025 w531t4
-#
-# This file is licensed under the MIT License.
-# See the LICENSE file in the project root for full license text.
+# SPDX-FileCopyrightText: 2025 Aaron White <w531t4@gmail.com>
+# SPDX-License-Identifier: MIT
 
 from pathlib import Path
 import re
