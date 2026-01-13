@@ -1,0 +1,66 @@
+{
+  "name": "twitch_firetvappstate Dev",
+  "build": {
+    "context": "..",
+    "dockerfile": "../Dockerfile.dev",
+    "args": {}
+  },
+  "onCreateCommand": "",
+  "postCreateCommand": "git config --global --add safe.directory ${containerWorkspaceFolder} && .devcontainer/setup",
+  "postStartCommand": ".devcontainer/bootstrap",
+  "containerEnv": {
+    "PYTHONASYNCIODEBUG": "1",
+    "ESPHOME_HOME_GIT_URL": "${localEnv:ESPHOME_HOME_GIT_URL}"
+  },
+  "initializeCommand": "",
+  "mounts": [],
+  "features": {},
+  // "appPort": [],
+  "runArgs": [
+    "-e",
+    "GIT_EDITOR=code --wait",
+    "--security-opt",
+    "label=disable"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "charliermarsh.ruff",
+        "ms-python.pylint",
+        "ms-python.vscode-pylance",
+        "redhat.vscode-yaml",
+        "esphome.esphome-vscode",
+        "esbenp.prettier-vscode",
+        "GitHub.vscode-pull-request-github"
+      ],
+      "settings": {
+        "remote.autoForwardPorts": false,
+        "git.ignoredRepositories": [],
+        "python.experiments.optOutFrom": ["pythonTestAdapter"],
+        "python.defaultInterpreterPath": "/home/vscode/.local/venv/bin/python",
+        "python.pythonPath": "/home/vscode/.local/venv/bin/python",
+        "python.terminal.activateEnvInCurrentTerminal": true,
+        "python.testing.pytestArgs": ["--no-cov"],
+        "pylint.importStrategy": "fromEnvironment",
+        "python.analysis.typeCheckingMode": "basic",
+        "editor.formatOnPaste": false,
+        "editor.formatOnSave": true,
+        "editor.formatOnType": true,
+        "files.trimTrailingWhitespace": true,
+        "terminal.integrated.profiles.linux": {
+          "bash": {
+            "path": "/usr/bin/bash"
+          }
+        },
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff"
+        },
+        "[json][jsonc][yaml]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode"
+        },
+        "json.schemas": []
+      }
+    }
+  }
+}

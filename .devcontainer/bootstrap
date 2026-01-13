@@ -1,0 +1,19 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2025 Aaron White <w531t4@gmail.com>
+# SPDX-License-Identifier: MIT
+# Stop on errors
+set -e
+
+cd "$(realpath "$(dirname "$0")/..")"
+
+echo "Installing development dependencies..."
+
+# Install esphome
+uv pip install \
+  -r requirements.txt \
+  -r requirements_test.txt \
+  colorlog \
+  --upgrade \
+  --config-settings editable_mode=compat
+
+# .devcontainer/bootstrap-private-configs

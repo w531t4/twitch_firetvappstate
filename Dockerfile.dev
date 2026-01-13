@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: 2025 Aaron White <w531t4@gmail.com>
+# SPDX-License-Identifier: MIT
+FROM mcr.microsoft.com/vscode/devcontainers/base:latest
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+RUN \
+    apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        git \
+        cmake \
+        autoconf \
+        libreadline-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /usr/src
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+USER vscode
+
+ENV VIRTUAL_ENV="/home/vscode/.local/venv"
+RUN --mount=type=bind,source=.python-version,target=.python-version \
+    uv python install \
+    && uv venv $VIRTUAL_ENV
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+# Install Python dependencies from requirements
+RUN --mount=type=bind,source=requirements.txt,target=requirements.txt \
+    --mount=type=bind,source=requirements_test.txt,target=requirements_test.txt \
+    uv pip install -r requirements.txt -r requirements_test.txt
+
+WORKDIR /workspaces
+
+# Set the default shell to bash instead of sh
+ENV SHELL=/bin/bash
