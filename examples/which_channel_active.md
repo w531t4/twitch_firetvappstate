@@ -1,3 +1,7 @@
+<!--
+SPDX-FileCopyrightText: 2025 Aaron White <w531t4@gmail.com>
+SPDX-License-Identifier: MIT
+-->
 adb shell uiautomator dump
 adb pull /sdcard/window_dump.xml .
 

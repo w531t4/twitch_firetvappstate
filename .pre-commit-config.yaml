@@ -1,8 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Aaron White <w531t4@gmail.com>
 # SPDX-License-Identifier: MIT
 repos:
-  []
-  # - repo: https://github.com/fsfe/reuse-tool
-  #   rev: v6.2.0
-  #   hooks:
-  #     - id: reuse-lint-file
+  - repo: https://github.com/fsfe/reuse-tool
+    rev: v6.2.0
+    hooks:
+      - id: reuse-lint-file
