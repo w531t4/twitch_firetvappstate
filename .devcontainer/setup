@@ -30,4 +30,4 @@ fi
 
 .devcontainer/bootstrap
 
-# pre-commit install
+pre-commit install
