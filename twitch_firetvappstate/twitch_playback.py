@@ -3,6 +3,8 @@
 
 from pathlib import Path
 import re
+import time
+import threading
 from datetime import datetime
 from typing import Optional
 import appdaemon.plugins.hass.hassapi as hass
@@ -25,6 +27,9 @@ class TwitchPlayback(hass.Hass):
     last_playbackactivechannel: Optional[str]  # previous playbackactivechannel
     adbkey: Path  # adb private key
     adbkey_pub: Path  # adb pub key
+    _adb_lock: threading.Lock  # serialize the (non-thread-safe) adb socket
+    _dump_in_flight: bool  # a background dump worker is running
+    dump_deadline_secs: float  # how long the dump worker retries before giving up
 
     def initialize(self):
         """ get values from apps.yaml """
@@ -39,12 +44,15 @@ class TwitchPlayback(hass.Hass):
         self.entity_prefix = self.args.get("entity_prefix", "firetv_twitch")
         self.poll_secs = int(self.args.get("poll_interval", 5))
         self.session_header = self.args.get("session_header", "TwitchMediaSession")
+        self.dump_deadline_secs = float(self.args.get("dump_deadline_secs", 30))
 
         self.adb = None
         self.connected = False
         self.last_playbackstate = None
         self.last_appinfocus = None
         self.last_playbackactivechannel = None
+        self._adb_lock = threading.Lock()
+        self._dump_in_flight = False
 
         self.run_in(self._loop, 1)
 
@@ -104,7 +112,8 @@ class TwitchPlayback(hass.Hass):
         if not self.connected or not self.adb:
             return ""
         try:
-            data = self.adb.shell(cmd)
+            with self._adb_lock:  # serialize; adb socket isn't thread-safe
+                data = self.adb.shell(cmd)
             if data and isinstance(data, bytes):
                 return data.decode("utf-8")
             elif data and isinstance(data, str):
@@ -256,24 +265,40 @@ class TwitchPlayback(hass.Hass):
 
     # ----------- Main loop -----------
     def _uia_dump_xml(self) -> Optional[str]:
-        """
-        Returns the window_dump.xml content as a string, or None on failure.
-        Uses 'uiautomator dump --compressed' then cats the file to avoid local temp files.
-        """
-        # Write the dump
+        """One dump attempt: write the UI hierarchy to a file, then read it back.
+        Returns the XML, or None if the (flaky) dump failed. _dump_worker retries."""
         dump_path = "/sdcard/window_dump.xml"
         out = self._adb_shell(f"uiautomator dump --compressed {dump_path} 2>&1")
-        if not out:
-            self.error("uiautomator dump produced no output")
+        if f"UI hierchary dumped to: {dump_path}" not in out:
             return None
-
-        # Some builds return a success line; we still read the file explicitly.
         xml_text = self._adb_shell(f"cat {dump_path}")
         if not xml_text or "<hierarchy" not in xml_text:
             self.error(f"Failed to read UI dump from {dump_path}; "
                        f"cat returned: {repr(xml_text)[:120]}")
             return None
         return xml_text
+
+    def _dump_worker(self) -> Optional[str]:
+        """Off-thread: retry the flaky dump up to dump_deadline_secs. Returns the
+        streamer name, or None on failure. Must not raise (else the callback is
+        skipped and _dump_in_flight never clears)."""
+        deadline = time.monotonic() + self.dump_deadline_secs
+        while time.monotonic() < deadline:
+            try:
+                name = self.find_streamer_name(self._uia_dump_xml() or "")
+            except Exception as e:
+                self.error(f"dump worker error: {e}")
+                name = None
+            if name:
+                return name
+            time.sleep(1.0)
+        return None
+
+    def _on_dump_result(self, result, **kwargs):
+        """submit_to_executor callback (runs on a normal worker thread). Publish
+        the channel, or "unknown" on failure so breakage stays visible."""
+        self._dump_in_flight = False
+        self._publish_twitch_playbackactivechannel(result or "unknown")
 
     def _loop(self, _):
         try:
@@ -300,11 +325,14 @@ class TwitchPlayback(hass.Hass):
                 # since "off" is truthy.
                 is_focused = self.get_state("binary_sensor.firetv_twitch_is_focused") == "on"
                 is_playing = self.get_state("binary_sensor.firetv_twitch_playing") == "on"
-                xml = None
                 if is_focused and is_playing:
-                    xml = self._uia_dump_xml()
-                state_val = self.find_streamer_name(xml) if xml else "unknown"
-                self._publish_twitch_playbackactivechannel(state_val)
+                    # Dump is flaky/slow: run off-thread so _loop stays under
+                    # AppDaemon's 10s limit; _on_dump_result publishes it.
+                    if not self._dump_in_flight:
+                        self._dump_in_flight = True
+                        self.submit_to_executor(self._dump_worker, callback=self._on_dump_result)
+                else:
+                    self._publish_twitch_playbackactivechannel("unknown")
 
         except Exception as e:
             self.error(f"Poll error: {e}")
