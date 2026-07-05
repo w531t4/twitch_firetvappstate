@@ -254,6 +254,23 @@ class TwitchPlayback(hass.Hass):
                 state=state_val,
             )
 
+    def adb_shell_until_str(
+        self, cmd: str, expected_output: str, max_retries: int = 5
+    ) -> bool:
+        """retry adb command until the expected output is present, or max_retries is met. Returns True if expected output is found, False otherwise."""
+        attempt = 0
+        while attempt < max_retries:
+            data_out = self._adb_shell(cmd)
+            if expected_output in data_out:
+                return True
+            data_out = data_out.replace("\n", " ")
+            self.log(
+                f"adb_shell_until_str: attempt {attempt + 1}/{max_retries} failed for cmd '{cmd}'. data_out={data_out}",
+                level="WARNING",
+            )
+            attempt += 1
+        return False
+
     # ----------- Main loop -----------
     def _uia_dump_xml(self) -> Optional[str]:
         """
@@ -262,9 +279,11 @@ class TwitchPlayback(hass.Hass):
         """
         # Write the dump
         dump_path = "/sdcard/window_dump.xml"
-        out = self._adb_shell(f"uiautomator dump --compressed {dump_path} 2>&1")
-        if not out:
-            self.error("uiautomator dump produced no output")
+        if not self.adb_shell_until_str(
+            cmd=f"uiautomator dump --compressed {dump_path} 2>&1",
+            expected_output=f"UI hierchary dumped to: {dump_path}",
+        ):
+            self.log("uiautomator dump failed", level="ERROR")
             return None
 
         # Some builds return a success line; we still read the file explicitly.
