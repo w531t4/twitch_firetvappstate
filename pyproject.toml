@@ -1,12 +1,10 @@
-# SPDX-FileCopyrightText: 2025 Aaron White <w531t4@gmail.com>
-# SPDX-License-Identifier: MIT
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "twitch_firetvappstate"
-version = "0.2.0"
+version = "0.3.0"
 description = "Poll ADB on FireTV to produce/present a Twitch App state to Homeassistant"
 authors = [
     { email="w531t4@gmail.com" }
