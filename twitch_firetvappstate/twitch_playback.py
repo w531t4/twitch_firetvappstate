@@ -295,9 +295,11 @@ class TwitchPlayback(hass.Hass):
                 out = None
                 state_val = None
 
-                # Determine what channel is currently being watched
-                is_focused = self.get_state("binary_sensor.firetv_twitch_is_focused")
-                is_playing = self.get_state("binary_sensor.firetv_twitch_playing")
+                # Determine what channel is currently being watched.
+                # get_state returns the "on"/"off" strings; compare explicitly
+                # since "off" is truthy.
+                is_focused = self.get_state("binary_sensor.firetv_twitch_is_focused") == "on"
+                is_playing = self.get_state("binary_sensor.firetv_twitch_playing") == "on"
                 xml = None
                 if is_focused and is_playing:
                     xml = self._uia_dump_xml()
